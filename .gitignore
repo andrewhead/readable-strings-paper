@@ -157,3 +157,10 @@ pythontex-files-*/
 
 # Latexian
 TSWLatexianTemp*
+
+# Main document output
+main.pdf
+
+# vim swap files
+.*.swp
+.*.swo
