@@ -9,27 +9,29 @@
 \begin{document}
 
 \title{\Large CS 267 Project Proposal: Searching for and Clustering \\
-Strings that Satisfy Regular Expressions in Real Data}
+Strings from Real Data that Satisfy Regular Expressions}
 \author{\large Andrew Head}
 \date{}
 \maketitle
 
 % Section resizing hint from
 % http://tex.stackexchange.com/questions/103286/how-to-change-section-subsection-font-size
-\titleformat{\section}{\normalfont\fontsize{11}{13}\bfseries}{\thesection}{1em}{}
+\titleformat{\section}{\normalfont\fontsize{10}{11}\bfseries}{\thesection}{1em}{}
+
+\pagenumbering{gobble}
 
 \vspace{-5ex}
 \section{Problem}
 
-Programmers search for help online when they're programming  to learn new technologies and clarify details~\cite{brandt_two_2009}.
-Though sometimes it can be difficult to use online examples, as authors may assume that readers have certain knowledge they don't.
-In past research, I built tools to automatically explain micro-languages like CSS selectors and regular expressions when they appear in web pages~\cite{head_tutorons_2015}.
+Programmers search for help online when they're programming to learn new technologies and clarify details~\cite{brandt_two_2009}.
+Sometimes it can be difficult to use online examples, as authors may assume that readers have certain knowledge they don't.
+In past research, I built tools to automatically explain micro-languages like CSS selectors and regular expressions when they appear in web tutorials.%~\cite{head_tutorons_2015}.
 
 I generated strings matching arbitrary regular expressions to help show what the regular expressions were designed to do.
-But they were hard to read and unrepresentative of the text it was probably built to match.
-I want to make it tractable to find and select representative strings that a regular expression matches across many real datasets.
-\textbf{Given an arbitrary regular expression that a user discovers, I will produce
-three real, representative strings the regular expression matches in interactive time.}
+But they were hard to read and unrepresentative of the text they were probably built to match.
+I want to make it tractable to select representative strings that a regular expression matches across many real datasets.
+\textbf{Given an arbitrary regular expression a user discovers, my goal is to produce
+a few real, representative strings it matches in interactive time, sampled from real datasets.}
 
 \section{Proposal}
 
@@ -37,20 +39,22 @@ To find real, representative strings that a regular expression matches, I propos
 \begin{enumerate}[noitemsep]
 \item Collect a few hundred/thousand datasets with heterogeneous data
 \item Parallelize a regular expression matching routine across machines to the extent where it discovers a subset of matching strings covering all datasets in sub-second time
-\item Clustering resulting strings based on matching rules satisfied
+\item Cluster matching strings based on paths followed in the regular expression DFAs
 \end{enumerate}
-My contribution related to this class will be adapting existing regular expression matching routines to a parallel architecture, or parallelizing string clustering for this application.
-If I find performance of ``embarrassingly parallel'' string search is good enough with existing tools (e.g., \texttt{egrep}), I will focus on clustering.
+My contribution will be adapting existing regular expression matching routines to a parallel architecture, or parallelizing string clustering for this application.
+If I find performance of ``embarrassingly parallel'' string search over subsets of datasets is good enough with using existing tools (e.g., \texttt{egrep}), I will focus on adapting parallel clustering to this problem.
+Techniques like~\cite{zhao_parallel_2009} may provide baseline clustering implementations.
 
-Performance will be evaluated with 100 POSIX-style extended regular expressions that I have found in programming tutorial corpus I extracted for a past project.
-It will be measured as the runtime for scanning a subset of each of the subsets and reporting all valid strings, and as the time to cluster the resulting strings.
+Performance will be evaluated with 100 POSIX-style extended regular expressions that I have found in a programming tutorial corpus I extracted for a past project.
+I will measure performance for scanning a subset of each of the datasets and reporting all valid strings, and the time to cluster the resulting strings.
 I will perform more detailed, step-by-step analysis for a small sample of these regular expressions.
 
 \section{Progress}
 
-I have downloaded 1304 CSV datasets from \url{Data.gov}, and intend to download 10,000 total.
+I have downloaded 2026 CSV datasets from \url{Data.gov}, and intend to download 10,000 total.
 I have verified that these datasets include email addresses, phone numbers, and times, and street addresses.
-I have run \texttt{egrep} on a local server over all files smaller than 512MB, and seen that it takes \emph{lots of time} to complete, giving me a baseline and confirming that a faster solution is needed.
+I have run \texttt{egrep} for a five-character regular expression for time on a local server with over 13GB of data as a baseline.
+This took 30.42 seconds of CPU time to complete, confirming that a faster solution is needed for interactivity.
 
 \printbibliography{}
 
