@@ -98,41 +98,131 @@ In contrast to the other mentioned work~\cite{tsirogiannis_suffix_2010,mansour_e
 not concerned with our input overfilling main memory, and attempt to take advantage of partitioned
 global memory rather than memory shared within a multi-processor.
 
-\if 0
-We wanted to speed up Cartesian tree construction for an application to string clustering.
-A Cartesian tree is a heap produced from an ordered set that, when traversed in order, produces the original ordered set.\footnote{\url{https://en.wikipedia.org/wiki/Cartesian_tree}}
-Shun \& Blelloch proposed a divide-and-conquer algorithm with thread-level parallelism.
-Our application required interactive speed, so we aimed to find a parallel extension to achieve further speedup by merging partial results using multiple nodes.
+Before proceeding, we take a quick moment to situate this work relative to the \emph{structural}
+and \emph{computational} patterns from the CS267 course that relate to this work.
+We do not use any of the core computational patterns described by Asanovic et
+al.~\cite{asanovic_view_2009}.
+While some substring algorithms require a dynamic programming approach, this one uses a fairly
+straightforward divide-and-conquer approach (read on for an explanation).
+The structural pattern we use (referring not to structure of software, but rather the structure
+of memory layout and computation) is \emph{partitioned global address space} (PGAS).
+As we were more interested in extending the power of this algorithm by applying a different
+structure via another architecture (PGAS) and framework (UPC), we decided to focus our effort in
+implementing and evaluating this algorithm under this architecture, rather than exploring
+alternative computational patterns for the problem.
 
+\if 0
 I discovered that there's a natural extension of a previous algorithm for single-node parallel Cartesian tree construction to multiple nodes using partitioned global address space.
 My task was to implement this, and verify whether there were genuine time savings.
 \fi
 
 \section{Approach}
 
-The structural pattern we use is partitioned global address space (PGAS).
-We do not use any of the core computational patterns described by Asanovic et
-al.~\cite{asanovic_view_2009}.
-While some substring algorithms require a dynamic programming approach, this one uses a fairly
-straightforward divide-and-conquer approach.
-As we were more interested in extending the power of this algorithm by applying a different
-structure via another architecture (PGAS) and framework (UPC), we decided to keep the simple
-computational pattern of divide-and-conquer consistent.
+Here, we describe our approach to extend the baseline algorithm.
+Shun \& Blelloch researchers developed the algorithm with an understanding that a Cartesian tree can be
+converted into a suffix tree, when augmented with data from the suffix array it was built from.
+A Cartesian tree is a heap produced from an ordered set.
+One constraint of its construction is that, when the tree is traversed in order,
+it must produce the original ordered set.
+\footnote{\url{https://en.wikipedia.org/wiki/Cartesian_tree}}
+Shun \& Blelloch showed you could parallelize the construction of a Cartesian tree with a
+divide-and-conquer approach.
+Cartesian trees are formed from pairs of entries in the ordered set.
+These trees are continually merged until you have the Cartesian tree for the set.
+Two sub-trees are merged by ordering and linking nodes in the neighboring spines between
+two sub-trees.
+Shun \& Blelloch implement this with top-down recursion, where the base case merges two nodes, and
+a new thread can be spawned for each merge operation on two sub-trees.
+We refer the reader to the original paper for details~\cite{shun_simple_2014}.
 
-In the interest of brevity, we do not describe Shun \& Blelloch's algorithm in depth.
-We instead refer readers to the original paper for details.
-But the essence of the algorithm is the following:
-the algorithm performs divide-and-conquer construction of the Cartesian tree.
-At the lowest level, it merges Cartesian trees from individual nodes.
-The method with which the merge is performed preserves the Cartesian tree.
-Each merge is quite fast.
-It needs to consider only nodes in the right spine of the left tree and the left spine of the right tree.
-This means that very little of each tree needs to be inspected when merging the trees.
+When considering the most productive way to extend this algorithm to hardware beyond multiple
+threads on a single processor, our key insight was as follows:
+Given the input as an ordered set, all nodes are merged with their immediate neighbors.
+All sub-trees are merged with sub-trees that are neighboring subsets of that ordered set.
+The order of the nodes does not change at any time (although individual nodes can be updated with
+new links between each of the nodes).
+Given that most merge operations would act on only a small chunk of the data (1 merge would
+see all of the data, 2 merges would see one-half, 4 would see one-quarter, and so on\ldots{}),
+\textbf{exchange of intermediate results between processors simultaneously contributing to the merge
+could be almost completely eliminated by assigning threads and processors a contiguous subset
+of the list of nodes and only the computations that performed on those nodes.}
+It is not until the last $P - 1$ computations at the last $\log (P)$ levels of the
+tree of computation that communication would have to happen at all.
+For a graphical representation of this, see Figure~\ref{fig:architecture}.
 
-A chief challenge of parallelizing across nodes is avoiding costly communication.
-The key insight of this work is that there exists a natural extension of this algorithm to partitioned global address space (PGAS) parallelism.
-With $P$ processors and $N$ merge operations, only the final $P - 1$ of $N - 1$ computations require shared memory access.
-Aside from this, there should be no performance degradation using multiple nodes.
+Our task was then to rewrite the algorithm in a way that:
+\begin{itemize}[noitemsep]
+  \item Still enabled parallel merging of subtrees
+  \item Minimized the communication between distinct ``compute'' nodes
+\end{itemize}
+The result of our efforts are described in the next two sections.
+First, we describe a model that confirms that we should achieve performance improvement by
+extending Shun \& Blelloch's algorithm to multiple processors.
+Second, we describe how we used a partitioned global address space programming model to support parallel
+computation of the Cartesian tree while minimizing communication between nodes.
+
+\subsection{Theoretical Performance}
+
+Prior to doing implementation, we wrote a lightweight model to verify whether utilizing additional
+nodes in parallel computation could actually improve performance, given the additional
+communication costs it would have to incur in the final merge computations.
+Here we walk you through our rationale that confirmed the advantage of using multiple processors.
+
+Define $T_C$ to be a (constant) communication time between processors to transmit a number of
+elements that must be used for a merge operation.
+Define $T_M$ to be a (constant) merge time for performing a merge computation.
+We admit that these quantities are in fact not constant.
+But they are likely all within a certain limited range for a tree of a certain depth, and it is
+really the ratio between the average communication time and the average merge time that actually
+matters when we develop the final cost relation.
+
+For an ordered set of $N$ input elements, there will be in total $N - 1$ merge operations (adjusting
+this amount slightly if $N$ is not a power of 2).
+If the runtime is defined as purely the amount of time it takes to perform all of the merge
+operations, then the runtime on a single processor with one thread will be:
+\begin{equation}\label{eqn:single}
+T_M * (N-1)
+\end{equation}
+
+Consider a second case, where the computation can be shared across multiple processors, but with
+a cost of communication every time a merge operation requires elements from another processor.
+Assuming the number of elements per processor is a power of 2 and these elements are evenly 
+divided across all processors, it is only the final $P - 1$ computations in which processors
+must share information (see Figure~\ref{fig:architecture} to verify this with 16 elements
+divided between four processors).
+The cost of these final computations is now the cost of communication plus the cost of merging,
+such that the overall cost of computation with $P$ processors is:
+\begin{equation}\label{eqn:multiple}
+\left( T_C + T_M \right) *(P-1)+\frac{T_M}{P}*(N-P)<T_M*(N-1)
+\end{equation}
+
+As long as Equation~\ref{eqn:multiple} yields a smaller cost than Equation~\ref{eqn:single}, we
+reduce cost by using multiple processors.
+Simplifying this relationship algebraically, we find that our extensions should achieve speedup
+over the single processor baseline as long as the following is true:
+\begin{equation}
+\frac{T_C}{T_M} < \frac{N}{P} - 1
+\end{equation}
+
+In other words, if it takes ten thousand times as long to communicate shared elements between
+processors, then there should be about ten thousand times as many elements as there are
+processors.
+This makes intuitive sense---the longer that communication takes, the more computations will
+have to take place with local memory only within each thread to offload the cost of communication.
+
+This cost relationship held with the test data that we used.
+With one of our test datasets, we measured an average $T_M$ of 150 ns for each merge.
+For their Edison supercomputer, NERSC reports a 250--3700 ns expected communication 
+latency\footnote{\url{http://www.nersc.gov/users/computational-systems/edison/configuration/}}.
+With 8 compute nodes, we would expect that as few as 200 elements would make parallel merging
+with multiple nodes worthwhile.
+
+We also note that although this model was described for the case of single-thread processors,
+this relationship extends to the case of multiple threads perfectly sharing work for the single and
+multiple-processor cases.
+Just add a divisor for the number of threads to the $T_M$ term.
+
+\subsection{Implementation}
 
 \begin{figure}
 \centering
@@ -145,7 +235,72 @@ As long as we constrain each thread to merge only subtrees in its local memory, 
 \label{fig:architecture}
 \end{figure}
 
-Once Shun \& Blelloch's code is written bottom-up, a simplified solution can be expressed elegantly, with only barrier-level synchronization:
+Adjusting Shun \& Blelloch's approach of dynamically-spawned threads for divide-and-conquer to
+the UPC programming framework required several changes.
+Some of these were to support the PGAS programming model;
+others were to support syntactic and semantic constraints of the UPC environment.
+
+UPC programs are run with a defined number of threads.
+As a result, the number of threads and how memory was divided between them needed to be defined
+up front.
+We divided the number of entries in the input set evenly between all threads.
+Each thread was assigned a contiguous location in the shared list.
+
+We could no longer perform divide-in-conquer in a top-down fashion, as:
+\begin{itemize}[noitemsep]
+  \item We could no longer spawn new threads at will
+  \item Each thread was to only merge its own elements in the common case
+\end{itemize}
+We refactored the code to perform bottom-up, iterative divide-and-conquer.
+In the first iteration, subtrees were merged from pairs of nodes.
+In the second, pairs of the subtrees from the first iteration were merged.
+Only the UPC thread that `owned' the first node of the left sub-tree performed the merge.
+The result was that until the final $P - 1$ computations, all threads accessed only memory with
+the affinity to itself.
+
+With a dynamically-sized shared buffer, elements are allocated in round-robin fashion between threads.
+Semantically for our algorithm, it was significant that elements that appeared adjacent to each
+other in the list were all assigned to the same thread.
+To force elements to be inserted into each thread until it was full, we developed a lookup key that
+would convert a `cyclic' index of the default round-robin allocation into a block-order index:
+
+\begin{minipage}{\linewidth}
+\begin{lstlisting}
+for (int i = 0; i < n; i++) {
+  thread = i / elements_per_thread;
+  phase = i \% elements_per_thread;
+  index[i] = thread + phase * THREADS;
+}
+\end{lstlisting}
+\end{minipage}
+
+One disadvantage of this design choice is that it requires not one but two index computations
+for every array lookup within the shared list.
+We discuss this in additional detail in the results section.
+
+The top-down divide-and-conquer approach of the original algorithm implicitly expressed the
+dependencies of sub-tree merges:
+no merge could be performed until both of the sub-trees it was merging had finished merging
+their sub-trees.
+As these dependencies were no longer implicitly enforced by bottom-up divide-and-conquer---for
+instance, a thread could get far ahead of the others and eventually attempt to merge together its
+subtree with an unfinished sub-tree of another thread---we enforced synchronization at each
+level of depth within the tree using \texttt{upc\_barrier}.
+
+With all of these adjustments, we rewrote the \texttt{cartesianTree} method of Shun \& Blelloch's
+code with no more than 23 lines of code (excluding comments and whitespace).
+What we want to emphasize here is that this is a simple, elegant iterative solution that allows
+the existing algorithm of Shun \& Blelloch to extend to multiple processors, while maintaining
+most of the semantics of the original algorithm.
+In other words, this program was ripe for adaptation to PGAS.
+
+To demonstrate the elegance of the solution, we show a simplified version of the C code for
+our solution here.
+Note that the only UPC structures are the share list \texttt{Nodes}, iteration with a level
+of the tree using \texttt{upc\_forall}, and synchronization via \texttt{upc\_barrier}.
+Some details have been omitted for ease of reading.
+For instance, as described above, to access elements by block rather than cyclically, we performed
+two array lookups every time we accessed an element of \texttt{Nodes}.
 
 \lstset{language=C}
 \begin{minipage}{\linewidth}
@@ -164,46 +319,24 @@ for (int step = 2; step < n * 2; step *= 2) {
 \end{lstlisting}
 \end{minipage}
 
-\textbf{%
-We needed to do the following to make this work feasibly:
-set hard limits on the boundaries of each one.
-Convert a cyclic buffer into a block-based shared memory buffer;
-use upc\_barriers, to make sure that each level was only constructed after the last one was finished.
-Work bottom-up instead of top-down.
-Restrict to a static number of threads instead of dynamic
-}
-
-\begin{minipage}{\linewidth}
-\begin{lstlisting}
-for (int i = 0; i < n; i++) {
-  thread = i / elements_per_thread;
-  phase = i \% elements_per_thread;
-  index[i] = thread + phase * THREADS;
-}
-\end{lstlisting}
-\end{minipage}
-
-We direct readers to the Shun \& Blelloch work for details on how merging is performed.
-
-\section{Expected Performance}
-
-\textbf{Explain this more and how we construct it}
-
-We describe the expected performance here:
-Assuming constant communication time $T_C$ and ``merge'' time $T_M$, the runtime for our multi-node algorithm can be estimated with this expression:
-
-$\left( T_{ C }+T_{ M } \right) *(P-1)+\frac{T_M}{P}*(N-P)<T_{ M }*(N-1)$
-$T_{ M } * (N-1)$
-
-By simplifying a comparison with the Shun and Blelloch runtime, we find that our extension should achieve speedup as long as the following holds:
-$T_C / T_M < N / P - 1$
-
-\textbf{For example, this means that if it takes ten thousand times as long to communicate the entries necessary to perform a tree merge as to perform the merge itself, then there should be about ten thousand times as many nodes out of which to build the tree than there are processors.}
-
-With around 150 ns measured for each merge and 250--3700 ns expected communication latency on NERSC's Edison machine,\footnote{\url{http://www.nersc.gov/users/computational-systems/edison/configuration/}} we do see performance improvements with more nodes.
-Currently, improvement is sublinear with the number of nodes. 
-
 \section{Results}
+
+We conducted two tests for strong and weak scaling to determine our algorithm's improvement
+in performance relative to our model.
+For the test of strong scaling, we varied:
+\begin{itemize}[noitemsep]
+  \item The number of threads on a single processor
+  \item The number of processors, with twelve threads per processor
+\end{itemize}
+to determine whether our algorithm scaled with the amount of computational power afforded to it.
+We performed Cartesian tree construction on a set of 20,971,521 elements, representing the suffix
+tree for a text 10\texttt{M} in size.
+This was an excerpt of the file
+\texttt{etext-99}\footnote{\url{http://people.unipmn.it/manzini/lightweight/corpus/etext99.bz2}}.
+
+\textbf{Something about weak scaling tests here.}
+
+You can see the results in Figure~\ref{fig:benchmarks}.
 
 \begin{figure}
 \centering
