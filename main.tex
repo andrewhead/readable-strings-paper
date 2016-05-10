@@ -32,7 +32,7 @@ We report on a simple but elegant adaptation of the algorithm to PGAS\@.
 We describe the key insight---that memory access can be kept mostly local for this
 divide-and-conquer algorithm---that motivates our implementation.
 Although we fail to outperform the existing technique, we report evidence of sublinear strong and
-weak scaling for our adaptation, even with multiple nodes (while the original algorithm could run
+linear weak scaling for our adaptation, even with multiple nodes (while the original algorithm could run
 on only one node).
 We describe techniques that we believe may enable performance beyond the baseline algorithm.
 
@@ -49,7 +49,7 @@ construction---was the component of this pipeline where the author found
 the most feasible and interesting potential for parallelization using course concepts.
 Certain parts of the pipeline, including regular expression matching, are not simple to optimize
 beyond ``embarrassingly parallel'' improvements:
-Asanovic et al.~\cite{asanovic_view_2009} points out that only `work-inefficient' algorithms are
+Asanovic et al.~\cite{asanovic_view_2009} point out that only `work-inefficient' algorithms are
 known for executing finite state machines.
 Algorithms have been proposed for improving the speed of regular expression matching through
 novel processor architectures (e.g.,~\cite{brodie_scalable_2006}), the use of graphics processing
@@ -62,8 +62,8 @@ I/O-bound rather than computation-bound.
 While it is not necessarily the bottleneck to the system, an interesting potential resided in
 the problem of building a suffix tree at a faster speed.
 Initial tests with a 10M file revealed that suffix tree construction with a state-of-the-art
-algorithm~\cite{shun_simple_2014} was too slow for interactive automatic explanation speeds---
-about two-tenths of a second.
+algorithm~\cite{shun_simple_2014} was too slow for interactive automatic explanation speeds---about
+two-tenths of a second.
 So we set out to improve the speed of this component, particularly because we thought there would
 be an interesting problem in refactoring the parallel architecture for the algorithm.
 Suffix tree construction is also an active area of research, and it has been for some time.
@@ -90,12 +90,12 @@ They claim that their algorithm runs in $O\left(\min{d \log n, n}\right)$ time,
 with tree height $d$.
 We seek to add a divisor to this runtime, to achieve runtime of
 $O\left(\min{\frac{d}{p} \log n, \frac{n}{p}}\right)$.
-We are not completely successful in this effort, but we make a first step.
+We are not completely successful in this effort, but we take a first step.
 
 We use their algorithm as a starting point, asking how we can extend their multi-thread single-node
 code to run more efficiently on multiple nodes with multiple threads.
 In contrast to the other mentioned work~\cite{tsirogiannis_suffix_2010,mansour_era_2011}, we were
-not concerned with our input overfilling main memory, and attempt to take advantage of partitioned
+not concerned with our input overfilling main memory, and focus on taking advantage of partitioned
 global memory rather than memory shared within a multi-processor.
 
 Before proceeding, we take a quick moment to situate this work relative to the \emph{structural}
@@ -119,12 +119,12 @@ My task was to implement this, and verify whether there were genuine time saving
 \section{Approach}
 
 Here, we describe our approach to extend the baseline algorithm.
-Shun \& Blelloch researchers developed the algorithm with an understanding that a Cartesian tree can be
+Shun \& Blelloch developed the algorithm with an understanding that a Cartesian tree can be
 converted into a suffix tree, when augmented with data from the suffix array it was built from.
 A Cartesian tree is a heap produced from an ordered set.
 One constraint of its construction is that, when the tree is traversed in order,
-it must produce the original ordered set.
-\footnote{\url{https://en.wikipedia.org/wiki/Cartesian_tree}}
+it must produce the original ordered
+set.\footnote{\url{https://en.wikipedia.org/wiki/Cartesian_tree}}
 Shun \& Blelloch showed you could parallelize the construction of a Cartesian tree with a
 divide-and-conquer approach.
 Cartesian trees are formed from pairs of entries in the ordered set.
@@ -143,7 +143,7 @@ The order of the nodes does not change at any time (although individual nodes ca
 new links between each of the nodes).
 Given that most merge operations would act on only a small chunk of the data (1 merge would
 see all of the data, 2 merges would see one-half, 4 would see one-quarter, and so on\ldots{}),
-\textbf{exchange of intermediate results between processors simultaneously contributing to the merge
+\textbf{exchange of intermediate results between processors simultaneously performing the merge
 could be almost completely eliminated by assigning threads and processors a contiguous subset
 of the list of nodes and only the computations that performed on those nodes.}
 It is not until the last $P - 1$ computations at the last $\log (P)$ levels of the
@@ -213,7 +213,7 @@ have to take place with local memory only within each thread to offload the cost
 This cost relationship held with the test data that we used.
 With one of our test datasets, we measured an average $T_M$ of 150 ns for each merge.
 For their Edison supercomputer, NERSC reports a 250--3700 ns expected communication 
-latency\footnote{\url{http://www.nersc.gov/users/computational-systems/edison/configuration/}}.
+latency.\footnote{\url{http://www.nersc.gov/users/computational-systems/edison/configuration/}}
 With 8 compute nodes, we would expect that as few as 200 elements would make parallel merging
 with multiple nodes worthwhile.
 
@@ -274,7 +274,7 @@ for (int i = 0; i < n; i++) {
 \end{lstlisting}
 \end{minipage}
 
-One disadvantage of this design choice is that it requires not one but two index computations
+One disadvantage of this design choice is that it required not one but two index computations
 for every array lookup within the shared list.
 We discuss this in additional detail in the results section.
 
@@ -285,7 +285,7 @@ their sub-trees.
 As these dependencies were no longer implicitly enforced by bottom-up divide-and-conquer---for
 instance, a thread could get far ahead of the others and eventually attempt to merge together its
 subtree with an unfinished sub-tree of another thread---we enforced synchronization at each
-level of depth within the tree using \texttt{upc\_barrier}.
+level of depth within the computation tree using \texttt{upc\_barrier}.
 
 With all of these adjustments, we rewrote the \texttt{cartesianTree} method of Shun \& Blelloch's
 code with no more than 23 lines of code (excluding comments and whitespace).
@@ -324,7 +324,7 @@ for (int step = 2; step < n * 2; step *= 2) {
 \subsection{Methodology}
 
 We conducted two tests, for strong and weak scaling, to determine our algorithm's improvement
-in performance relative to the baseline.
+relative to the Shun \& Blelloch baseline.
 For the test of strong scaling, we varied:
 \begin{itemize}[noitemsep]
   \item The number of threads on a single processor
@@ -334,7 +334,7 @@ to determine whether our algorithm scaled with the amount of computational power
 We performed Cartesian tree construction on a set of 20,971,521 elements, representing the suffix
 tree for a text 10\texttt{M} in size.
 This was an excerpt of the file
-\texttt{etext-99}\footnote{\url{http://people.unipmn.it/manzini/lightweight/corpus/etext99.bz2}}.
+\texttt{etext-99}.\footnote{\url{http://people.unipmn.it/manzini/lightweight/corpus/etext99.bz2}}
 
 We also conducted a test to assess weak scaling.
 We observed the performance of our code on suffix arrays built from text files of size 
@@ -358,13 +358,13 @@ The ``Shun \& Blelloch 2014'' reference line reports the performance of the algo
 this one was based, which used a dynamic number of threads on a single processor.
 The second pair of plots shows these same runtimes on a log-log scale.
 This shows evidence of strong scaling, albeit sub-linear.
-The final plot with green points shows the weak scaling of this algorithm, showing how the
+The final plot with green points shows the weak scaling of this algorithm, reporting how
 performance of the algorithm changes as you increase the number of input elements.
 }
 \label{fig:benchmarks}
 \end{figure}
 
-After benchmarking performance with the measures from the last section on the NERSC Edison machine,
+After benchmarking performance with these measures on the NERSC Edison machine,
 we observed the following.
 As we increase the number of threads and processors, we see evidence of strong scaling.
 That is, increasing the computational resources decreases the amount of time computation takes.
@@ -382,7 +382,7 @@ that make use of multiple processors (see the reference line in Figure~\ref{fig:
 We describe in the next section why we think this is.
 In short, we attribute the poor performance to overhead from UPC together with strict 
 synchronization.
-As a result, we still see ourselves as achieving part of our goal of observing strong scaling with
+Despite this, we still see ourselves as achieving part of our goal of observing strong scaling with
 our algorithm with multiple nodes beyond its performance on a single node.
 
 \subsection{Diagnostics}
@@ -391,8 +391,8 @@ We did not expect our adjustments to the algorithm to add such overhead that we 
 improve on the baseline performance of Shun \& Blelloch even with 8 simultaneous nodes.
 The time increase occurred in the execution of the algorithm itself, ignoring the cost of loading
 input and writing out results for our benchmark.
-We observed doubling of the time that was spent in our merge operation, and six-fold increase
-in the time spent in the Cartesian tree construction algorithm that invokes merges
+We observed that our algorithm took double the time that in the merge operation, and six times
+as long in the Cartesian tree construction algorithm that invokes merges
 (see Table~\ref{tab:method_performance}).
 
 \begin{table*}[t]
@@ -411,10 +411,11 @@ in the time spent in the Cartesian tree construction algorithm that invokes merg
 \texttt{merge} & Shun \& Blelloch 2014 & 0.22s \\
 \midrule
 \texttt{cartesianTree} & Shun \& Blelloch 2014 & 0.04s \\
+\bottomrule
 \end{tabular}
 \end{table*}
 
-To determine what caused this overhead, we took effort to profile our code in two ways.
+To determine what caused this overhead, we took effort to profile the code in two ways.
 First, we profiled our code with the \texttt{gprof} utility according to the instructions from
 the UPC user guide.\footnote{\url{http://upc.lbl.gov/docs/user/#profiling}}
 Second, we analyzed our program's UPC memory access and synchronization using 
@@ -436,7 +437,7 @@ Runtime (per thread) & 70.22s \\ \midrule
 Runtime (total, all threads) & 842.64s \\ \midrule
 Time waiting in \texttt{upc\_barrier} & 90.6s \\ \midrule
 UPC 'get' operations & 1,363,142 \\ \midrule
-UPC 'put' operations & 1,363,145 \\ \midrule
+UPC 'put' operations & 1,363,145 \\ \bottomrule
 \end{tabular}
 \end{table*}
 
@@ -444,8 +445,8 @@ With these measurements, I expect these factors contributed to the overhead of o
 implementation:
 \begin{itemize}
   \item \emph{Thread count}.
-        On NERSC's Edison machine, each compute node has 12 cores with 1-2 threads.
-        \footnote{\url{http://www.nersc.gov/users/computational-systems/edison/configuration/}}
+        On NERSC's Edison machine, each compute node has 12 cores with 1-2 
+        threads.\footnote{\url{http://www.nersc.gov/users/computational-systems/edison/configuration/}}
         We assumed that performance would degrade after 12 threads per node, so we didn't
         bother testing more than this count.
         As the Shun \& Blelloch algorithm placed no explicit upper limit on the number of threads
@@ -458,7 +459,7 @@ implementation:
         However, if much more time is spent at the barrier in code that has not been instrumented
         for tracing, relative to the total runtime, this could cause threads to waste time
         synchronizing with each other that wasn't present in the Shun \& Blelloch algorithm.
-  \item \emph{Convoluted shared memory access}.
+  \item \emph{Costly shared memory access}.
         Access to individual elements in the input ordered set is slowed down by two modifications
         in our implementation.
         First, each index had to be converted from block-based addressing to cyclic addressing.
@@ -485,22 +486,31 @@ difficulty:
         into a block-order index.
 \end{itemize}
 
+With the array of existing profiling tools for UPC, we found it difficult to measure
+the time computing shared array indexes and waiting at barriers.
+With the low cost of the first two adjustments, these two are
+certainly worth implementing in near future iterations of this algorithm.
+A deeper understanding of the time spent at barriers and computing indexes is needed before we
+could justify the cost of implementing them.
+With these improvements, I expect that our PGAS extension of the Shun \& Blelloch algorithm can
+achieve both superior performance and strong scaling when run on multiple processors.
+
 \section{Conclusion}
 
 We proposed an extension to a parallel Cartesian tree construction algorithm that enables it to
 scale across multiple processors using partitioned global address space.
-We presented a model that suggests that performance should be seen with multiple processors 
+We presented a model that suggests that performance improvement should be seen with multiple processors 
 for all but non-trivial input sizes.
-We demonstrated that an implementation of our algorithm achieves non-linear strong scaling with
-the number of threads and processors used, and that the algorithm also shows weak scaling.
+We demonstrated that an implementation of our algorithm achieves sub-linear strong scaling with
+the number of processors used, and that the algorithm also shows weak scaling.
 After finding that our algorithm does not yet surpass the performance of the algorithm on which
-it is based, we proposed adjustment that would compensate for the additional costs of implementing
+it is based, we proposed adjustments to compensate for the additional costs of implementing
 it using an architecture within the UPC framework.
 
 Thank you to the course instructors for introducing the first author to the tools and concepts
 needed to consider improving the parallel code in the domain of string analysis.
-Thank you especially to Marquita Ellis for a short yet constructive conversation to clarify
-appropriate approaches, and Orianna DeMasi for her suggestions on how to improve the post-mortem
+Thank you especially to Marquita Ellis for a constructive conversation to clarify
+this project's aims, and Orianna DeMasi for her suggestions on how to improve the post-mortem
 for our algorithm and performance reporting.
 
 \printbibliography{}
